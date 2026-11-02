@@ -10,6 +10,7 @@ from aioshelly.exceptions import DeviceConnectionError, InvalidAuthError
 
 from homeassistant.components.climate import (
     DOMAIN as CLIMATE_DOMAIN,
+    PRESET_BOOST,
     PRESET_NONE,
     ClimateEntity,
     ClimateEntityDescription,
@@ -809,10 +810,13 @@ class RpcBluTrvClimate(ShellyRpcEntity, ClimateEntity):
     _attr_max_temp = BLU_TRV_TEMPERATURE_SETTINGS["max"]
     _attr_min_temp = BLU_TRV_TEMPERATURE_SETTINGS["min"]
     _attr_supported_features = (
-        ClimateEntityFeature.TARGET_TEMPERATURE | ClimateEntityFeature.TURN_ON
+        ClimateEntityFeature.TARGET_TEMPERATURE
+        | ClimateEntityFeature.TURN_ON
+        | ClimateEntityFeature.PRESET_MODE
     )
     _attr_hvac_modes = [HVACMode.HEAT]
     _attr_hvac_mode = HVACMode.HEAT
+    _attr_preset_modes = [PRESET_NONE, PRESET_BOOST]
     _attr_target_temperature_step = BLU_TRV_TEMPERATURE_SETTINGS["step"]
     _attr_native_temperature_unit = UnitOfTemperature.CELSIUS
 
@@ -850,6 +854,15 @@ class RpcBluTrvClimate(ShellyRpcEntity, ClimateEntity):
 
         return HVACAction.HEATING
 
+    @property
+    @override
+    def preset_mode(self) -> str:
+        """Return the current preset mode."""
+        if self.status.get("boost") is not None:
+            return PRESET_BOOST
+
+        return PRESET_NONE
+
     @rpc_call
     @override
     async def async_set_temperature(self, **kwargs: Any) -> None:
@@ -857,3 +870,14 @@ class RpcBluTrvClimate(ShellyRpcEntity, ClimateEntity):
         await self.coordinator.device.blu_trv_set_target_temperature(
             self._id, kwargs[ATTR_TEMPERATURE]
         )
+
+    @rpc_call
+    @override
+    async def async_set_preset_mode(self, preset_mode: str) -> None:
+        """Set new preset mode."""
+        # The TRV ends the boost after its configured duration and
+        # returns to the previous target temperature by itself
+        if preset_mode == PRESET_BOOST:
+            await self.coordinator.device.blu_trv_set_boost(self._id)
+        else:
+            await self.coordinator.device.blu_trv_clear_boost(self._id)
