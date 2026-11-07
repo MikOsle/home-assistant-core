@@ -28,8 +28,10 @@ from homeassistant.components.climate import (
     ATTR_HVAC_MODE,
     ATTR_HVAC_MODES,
     ATTR_PRESET_MODE,
+    ATTR_PRESET_MODES,
     DOMAIN as CLIMATE_DOMAIN,
     FAN_LOW,
+    PRESET_BOOST,
     PRESET_NONE,
     SERVICE_SET_FAN_MODE,
     SERVICE_SET_HUMIDITY,
@@ -1167,6 +1169,55 @@ async def test_blu_trv_climate_hvac_action(
 
     assert (state := hass.states.get(entity_id))
     assert state.attributes[ATTR_HVAC_ACTION] == HVACAction.HEATING
+
+
+async def test_blu_trv_climate_boost_preset(
+    hass: HomeAssistant,
+    mock_blu_trv: Mock,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test BLU TRV boost preset."""
+
+    entity_id = "climate.trv_name"
+    monkeypatch.delitem(mock_blu_trv.status, "thermostat:0")
+
+    await init_integration(hass, 3, model=MODEL_BLU_GATEWAY_G3)
+
+    assert (state := hass.states.get(entity_id))
+    assert state.attributes[ATTR_PRESET_MODES] == [PRESET_NONE, PRESET_BOOST]
+    assert state.attributes[ATTR_PRESET_MODE] == PRESET_NONE
+
+    await hass.services.async_call(
+        CLIMATE_DOMAIN,
+        SERVICE_SET_PRESET_MODE,
+        {ATTR_ENTITY_ID: entity_id, ATTR_PRESET_MODE: PRESET_BOOST},
+        blocking=True,
+    )
+    mock_blu_trv.blu_trv_set_boost.assert_called_once_with(200)
+
+    monkeypatch.setitem(
+        mock_blu_trv.status[f"{BLU_TRV_IDENTIFIER}:200"],
+        "boost",
+        {"started_at": 1760365354, "duration": 1800},
+    )
+    mock_blu_trv.mock_update()
+
+    assert (state := hass.states.get(entity_id))
+    assert state.attributes[ATTR_PRESET_MODE] == PRESET_BOOST
+
+    await hass.services.async_call(
+        CLIMATE_DOMAIN,
+        SERVICE_SET_PRESET_MODE,
+        {ATTR_ENTITY_ID: entity_id, ATTR_PRESET_MODE: PRESET_NONE},
+        blocking=True,
+    )
+    mock_blu_trv.blu_trv_clear_boost.assert_called_once_with(200)
+
+    monkeypatch.delitem(mock_blu_trv.status[f"{BLU_TRV_IDENTIFIER}:200"], "boost")
+    mock_blu_trv.mock_update()
+
+    assert (state := hass.states.get(entity_id))
+    assert state.attributes[ATTR_PRESET_MODE] == PRESET_NONE
 
 
 @pytest.mark.parametrize(
