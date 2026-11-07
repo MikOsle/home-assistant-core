@@ -829,6 +829,25 @@ class RpcBluTrvClimate(ShellyRpcEntity, ClimateEntity):
         ble_addr: str = self._config["addr"]
         self._attr_unique_id = f"{ble_addr}-{self.key}"
         self._attr_device_info = get_entity_blu_trv_device_info(coordinator, self.key)
+        self._assumed_preset: str | None = None
+
+    @override
+    async def async_added_to_hass(self) -> None:
+        """When entity is added to HASS."""
+        await super().async_added_to_hass()
+        # The boost state is only updated by polling, so refresh the entity
+        # after each poll
+        if poll_coordinator := self.coordinator.config_entry.runtime_data.rpc_poll:
+            self.async_on_remove(
+                poll_coordinator.async_add_listener(self._async_poll_callback)
+            )
+
+    @callback
+    def _async_poll_callback(self) -> None:
+        """Handle a polled update."""
+        # The polled status is up to date again, stop assuming the preset
+        self._assumed_preset = None
+        self.async_write_ha_state()
 
     @property
     @override
@@ -858,6 +877,9 @@ class RpcBluTrvClimate(ShellyRpcEntity, ClimateEntity):
     @override
     def preset_mode(self) -> str:
         """Return the current preset mode."""
+        if self._assumed_preset is not None:
+            return self._assumed_preset
+
         if self.status.get("boost") is not None:
             return PRESET_BOOST
 
@@ -881,3 +903,8 @@ class RpcBluTrvClimate(ShellyRpcEntity, ClimateEntity):
             await self.coordinator.device.blu_trv_set_boost(self._id)
         else:
             await self.coordinator.device.blu_trv_clear_boost(self._id)
+
+        # The boost state is only updated by polling, assume the new preset
+        # until the next poll
+        self._assumed_preset = preset_mode
+        self.async_write_ha_state()
